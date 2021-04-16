@@ -7,6 +7,7 @@ work_dir="${script_path}/work"
 debug=false
 remove=false
 notar=false
+skiplist=()
 
 echo_stderr(){
     echo -e "${@}" >&2
@@ -44,6 +45,12 @@ _usage(){
     echo "    -h | --help                  Show this help message"
     echo "         --notar                 No unarchive deb file"
     echo "         --remove                Remove work dir"
+    echo "         --skip <var1,var2>      Value to skip setting (multiple can be specified)"
+}
+
+Run(){
+    msg_info "Start ${1}"
+    eval "${@}"
 }
 
 CheckEnv(){
@@ -123,15 +130,31 @@ ParseControl(){
     control_file="${controlroot}/control"
 
     local _get
-    _get(){ cat "${control_file}" | grep -E "^${1}:" | sed "s|^${1}: ||g"; }
+    _get(){
+        local _value
+        if ! printf "%s\n" "${skiplist[@]}" | grep -ix "${1}" > /dev/null 2>&1; then
+            msg_debug "Parse ${1}"
+            _value="$(cat "${control_file}" | grep -E "^${1}:" | sed "s|^${1}: ||g")"
+            if [[ -v _value ]] && [[ ! "${_value}" = "" ]]; then
+                echo -n "${_value}"
+                return 0
+            fi
+        fi
+        return 1
+    }
 
-    pkgbuiod_pkgname="$(_get "Package")"
-    msg_debug "pkgname=\"${pkgbuiod_pkgname}\""
+    # pkgname
+    if pkgbuiod_pkgname="$(_get "Package")"; then
+        msg_debug "pkgname=\"${pkgbuiod_pkgname}\""
+    fi
 
-    pkgbuild_pkgver="$(_get "Version" | tr "-" "." )"
-    msg_debug "pkgver=\"${pkgbuild_pkgver}\""
+    # pkgver
+    if pkgbuild_pkgver="$(_get "Version" | tr "-" "." )"; then
+        msg_debug "pkgver=\"${pkgbuild_pkgver}\""
+    fi
 
-    while read -r _arch; do
+    # arch
+    for _arch in $(_get "Architecture"); do
         case "${_arch}" in
             "amd64")
                 pkgbuild_arch+=("x86_64")
@@ -143,9 +166,72 @@ ParseControl(){
                 pkgbuild_arch+=("${_arch}")
                 ;;
         esac
-    done < <(_get "Architecture")
+    done
     msg_debug "arch=($(printf "\"%s\"" "${pkgbuild_arch[@]}"))"
 
+    #Maintainer
+    #maintainer="$(_get "Maintainer")"
+
+    #Pre-Depends
+    #predepends="$(_get "Pre-Depends")"
+
+    #Depends
+    _pacman="pacman"
+    if which yay >/dev/null 2>&1; then
+        msg_debug "Use yay instead of pacman"
+        _pacman="yay"
+    fi
+    if printf "%s\n" "${skiplist[@]}" | grep "Depends" > /dev/null 2>&1; then
+        msg_debug "Searching dependence package..."
+    fi
+    while read -r _pkg; do
+        for __pkg in "${_pkg}" "$(printf "%s" "${_pkg}" | sed "s|lib||g")"; do
+            if "${_pacman}" -Ssq "${__pkg}" 2> /dev/null | grep -x "${__pkg}" 1> /dev/null 2>&1; then
+                pkgbuild_depends+=("${__pkg}")
+                break
+            fi
+        done
+    done < <(_get "Depends" | tr "," "\n" | cut -d " " -f 2 | tr -d "-" | tr -d "[0-9]" | tr -d ".")
+
+    if (( "${#pkgbuild_depends[@]}" != 0 )); then
+        msg_debug "depends=($(printf "\"%s\"" "${pkgbuild_depends[@]}"))"
+    fi
+
+    #Recommends
+    if printf "%s\n" "${skiplist[@]}" | grep "Recommends" > /dev/null 2>&1; then
+        msg_debug "Searching Recommends package..."
+    fi
+    while read -r _pkg; do
+        for __pkg in "${_pkg}" "$(printf "%s" "${_pkg}" | sed "s|lib||g")"; do
+            if "${_pacman}" -Ssq "${__pkg}" 2> /dev/null | grep -x "${__pkg}" 1> /dev/null 2>&1; then
+                pkgbuild_optdepends+=("${__pkg}")
+                break
+            fi
+        done
+    done < <(_get "Recommends" | tr "," "\n" | cut -d " " -f 2 | tr -d "-" | tr -d "[0-9]" | tr -d ".")
+
+    if (( "${#pkgbuild_optdepends[@]}" != 0 )); then
+        msg_debug "optdepends=($(printf "\"%s\"" "${pkgbuild_optdepends[@]}"))"
+    fi
+
+    # Provides
+    while read -r _pkg; do
+        pkgbuild_provides+=("${_pkg}")
+    done < <(_get "Provides")
+
+    if (( "${#pkgbuild_provides[@]}" != 0 )); then
+        msg_debug "provides=($(printf "\"%s\"" "${pkgbuild_provides[@]}"))"
+    fi
+
+    #Description
+    if pkgbuild_pkgdesc="$(_get "Description")"; then
+        msg_debug "pkgdesc=\"${pkgbuild_pkgdesc}\""
+    fi
+
+    #Homepage
+    if pkgbuild_url="$(_get "Homepage")"; then
+        msg_debug "url=\"${pkgbuild_url}\""
+    fi
 }
 
 
@@ -153,7 +239,7 @@ ParseControl(){
 # Parse options
 ARGUMENT=("${@}")
 OPTS="w:hd"
-OPTL="work:,help,debug,remove,notar"
+OPTL="work:,help,debug,remove,notar,skip:"
 if ! OPT=$(getopt -o ${OPTS} -l ${OPTL} -- ${DEFAULT_ARGUMENT} "${ARGUMENT[@]}"); then
     exit 1
 fi
@@ -180,6 +266,11 @@ while true; do
             notar=true
             shift 1
             ;;
+        --skip)
+            skiplist+=($(echo -n "${2}" | tr "," "\n"))
+            echo "${skiplist[@]}"
+            shift 2
+            ;;
         --)
             shift 1
             break
@@ -196,9 +287,9 @@ debfile="${1}"
 shift 1
 
 
-CheckEnv
+Run CheckEnv
 if [[ "${remove}" = true ]]; then
-    RemoveWork
+    Run RemoveWork
 fi
-PrepareBuild
-ParseControl
+Run PrepareBuild
+Run ParseControl
