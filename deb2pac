@@ -78,9 +78,10 @@ PrepareBuild(){
     dataroot="${work_dir}/data"
     controlroot="${work_dir}/control"
     otherroot="${work_dir}/other"
+    build_dir="${work_dir}/build"
 
     # Create work dir
-    for _dir in "${work_dir}" "${debroot}" "${dataroot}" "${controlroot}" "${otherroot}"; do
+    for _dir in "${work_dir}" "${debroot}" "${dataroot}" "${controlroot}" "${otherroot}" "${build_dir}"; do
         mkdir -p "${_dir}"
     done
 
@@ -234,6 +235,27 @@ ParseControl(){
     fi
 }
 
+MakeInstallFile(){
+    local _script _sourcefile _installfile="${build_dir}/${pkgbuiod_pkgname}.install"
+    declare -A _pkgbuild_function=(
+        ["preinst"]="pre_install"
+        ["postinst"]="post_install"
+        ["prerm"]="pre_remove"
+        ["postrm"]="post_remove"
+    )
+    touch "${_installfile}"
+    for _script in "preinst" "postinst" "prerm" "postrm"; do
+        _sourcefile="${controlroot}/${_script}"
+        if [[ -f "${_sourcefile}" ]]; then
+            msg_debug "Found ${_script}"
+            echo -e "function ${_pkgbuild_function["${_script}"]}(){" >> "${_installfile}"
+            cat "${_sourcefile}" >> "${_installfile}"
+            echo -e "}\n" >> "${_installfile}"
+        fi
+    done
+
+}
+
 
 
 # Parse options
@@ -293,3 +315,4 @@ if [[ "${remove}" = true ]]; then
 fi
 Run PrepareBuild
 Run ParseControl
+Run MakeInstallFile
