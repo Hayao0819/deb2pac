@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 script_path="$( cd -P "$( dirname "$(readlink -f "${0}")" )" && pwd )"
 work_dir="${script_path}/work"
 debug=false
@@ -17,8 +19,10 @@ msg_debug(){
 }
 
 msg_error(){
-    echo_stderr "ERROR  : ${*}"
-    if [[ -v 1 ]]; then exit "${1}"; fi
+    echo_stderr "ERROR  : ${1}"
+    if [[ -n "${2:-}" ]]; then
+        exit "${2}"
+    fi
 }
 
 msg_warn(){
@@ -48,11 +52,11 @@ CheckEnv(){
     fi
 
     if [[ ! -f "${debfile}" ]]; then
-        msg_error "${debfile} was not found"
+        msg_error "${debfile} was not found" 1
     fi
 
     if ! test "$(file --mime-type "${debfile}" | cut -d " " -f 2 | cut -d "/" -f 2)" = "vnd.debian.binary-package"; then
-        msg_error "${debfile} is not debian package"
+        msg_error "${debfile} is not debian package" 1
     fi
 }
 
@@ -140,6 +144,7 @@ ParseControl(){
                 ;;
         esac
     done < <(_get "Architecture")
+    msg_debug "arch=($(printf "\"%s\"" "${pkgbuild_arch[@]}"))"
 
 }
 
