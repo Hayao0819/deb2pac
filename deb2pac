@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+script_path="$( cd -P "$( dirname "$(readlink -f "${0}")" )" && pwd )"
+work_dir="${script_path}/work"
+debug=false
+remove=false
+notar=false
+
+echo_stderr(){
+    echo -e "${@}" >&2
+}
+
+msg_debug(){
+    if [[ "${debug}" = true ]]; then
+        echo_stderr "DEBUG  : ${*}"
+    fi
+}
+
+msg_error(){
+    echo_stderr "ERROR  : ${*}"
+    if [[ -v 1 ]]; then exit "${1}"; fi
+}
+
+msg_warn(){
+    echo_stderr "WARNING: ${*}"
+}
+
+msg_info(){
+    echo_stderr "INFO   : ${*}"
+}
+
+_usage(){
+    echo "usage ${0} [options] [deb file]"
+    echo
+    echo "Convet deb file to pacman file"
+    echo
+    echo " General options:"
+    echo "    -d | --debug                 Enable debug message"
+    echo "    -w | --work <work_dir>       Set the working directory"
+    echo "    -h | --help                  Show this help message"
+    echo "         --notar                 No unarchive deb file"
+    echo "         --remove                Remove work dir"
+}
+
+CheckEnv(){
+    if (( UID == 0 )); then
+        msg_error "Do not run as root" 1
+    fi
+
+    if [[ ! -f "${debfile}" ]]; then
+        msg_error "${debfile} was not found"
+    fi
+
+    if ! test "$(file --mime-type "${debfile}" | cut -d " " -f 2 | cut -d "/" -f 2)" = "vnd.debian.binary-package"; then
+        msg_error "${debfile} is not debian package"
+    fi
+}
+
+RemoveWork(){
+    msg_info "Removing ${work_dir}"
+    rm -rf "${work_dir}"
+}
+
+PrepareBuild(){
+    # Set vars
+    debroot="${work_dir}/deb"
+    dataroot="${work_dir}/data"
+    controlroot="${work_dir}/control"
+    otherroot="${work_dir}/other"
+
+    # Create work dir
+    for _dir in "${work_dir}" "${debroot}" "${dataroot}" "${controlroot}" "${otherroot}"; do
+        mkdir -p "${_dir}"
+    done
+
+    # Exit if notar = true
+    if [[ "${notar}" = true ]]; then
+        return 0
+    fi
+
+    # open deb file
+    ar --output "${debroot}" -x "${debfile}"
+
+    # debを展開して分類
+    local _file _output _uncompressed=()
+    while read -r _file; do
+        _filename="$(basename "${_file}")"
+        #if echo "${_filename}" | grep ".tar" > /dev/null 2>&1; then
+        if [[ "$(file --mime-type "${_file}" 2> /dev/null | cut -d " " -f 2)" = "application/x-xz" ]]; then
+            _uncompressed+=("${_file}")
+            case "${_filename}" in
+                "control."*)
+                    _output="${controlroot}"
+                    ;;
+                "data."*)
+                    _output="${dataroot}"
+                    ;;
+                *)
+                    _output="${otherroot}"
+                    ;;
+            esac
+            msg_info "tarアーカイブ ${_file} を見つけました"
+            msg_info "${_filename} を展開しています ..."
+            tar -x -f "${_file}" -C "${_output}"
+        elif [[ "${_filename}" = "debian-binary" ]]; then
+            msg_info "debian-binary を見つけました"
+            msg_info "このファイルは情報を持たないため無視されます"
+        else
+            msg_info "ファイル ${_file} を見つけました"
+            msg_warn "これは予期しないファイルのため無視されます"
+            msg_info "${_filename} をコピーしています ..."
+            cp "${_file}" "${otherroot}"
+        fi
+    done < <(find "${debroot}" -maxdepth 1 -mindepth 1 -type f -print0  | xargs -0 -I{} realpath {})
+
+}
+
+ParseControl(){
+    control_file="${controlroot}/control"
+
+    local _get
+    _get(){ cat "${control_file}" | grep -E "^${1}:" | sed "s|^${1}: ||g"; }
+
+    pkgbuiod_pkgname="$(_get "Package")"
+    msg_debug "pkgname=\"${pkgbuiod_pkgname}\""
+
+    pkgbuild_pkgver="$(_get "Version" | tr "-" "." )"
+    msg_debug "pkgver=\"${pkgbuild_pkgver}\""
+
+    while read -r _arch; do
+        case "${_arch}" in
+            "amd64")
+                pkgbuild_arch+=("x86_64")
+                ;;
+            "all")
+                pkgbuild_arch=("any")
+                ;;
+            "i686" | "i386")
+                pkgbuild_arch+=("${_arch}")
+                ;;
+        esac
+    done < <(_get "Architecture")
+
+}
+
+
+
+# Parse options
+ARGUMENT=("${@}")
+OPTS="w:hd"
+OPTL="work:,help,debug,remove,notar"
+if ! OPT=$(getopt -o ${OPTS} -l ${OPTL} -- ${DEFAULT_ARGUMENT} "${ARGUMENT[@]}"); then
+    exit 1
+fi
+
+eval set -- "${OPT}"
+msg_debug "Argument: ${OPT}"
+unset OPT OPTS OPTL
+
+while true; do
+    case "${1}" in
+        -d | --debug)
+            debug=true
+            shift 1
+            ;;
+        -h | --help)
+            _usage
+            exit 1
+            ;;
+        --remove)
+            remove=true
+            shift 1
+            ;;
+        --notar)
+            notar=true
+            shift 1
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            msg_error "Invalid argument '${1}'"
+            _usage
+            exit 1
+            ;;
+    esac
+done
+
+debfile="${1}"
+shift 1
+
+
+CheckEnv
+if [[ "${remove}" = true ]]; then
+    RemoveWork
+fi
+PrepareBuild
+ParseControl
