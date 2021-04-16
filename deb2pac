@@ -97,8 +97,8 @@ PrepareBuild(){
     local _file _output _uncompressed=()
     while read -r _file; do
         _filename="$(basename "${_file}")"
-        #if echo "${_filename}" | grep ".tar" > /dev/null 2>&1; then
-        if [[ "$(file --mime-type "${_file}" 2> /dev/null | cut -d " " -f 2)" = "application/x-xz" ]]; then
+        if echo "${_filename}" | grep ".tar" > /dev/null 2>&1; then
+        #if [[ "$(file --mime-type "${_file}" 2> /dev/null | cut -d " " -f 2)" = "application/x-xz" ]]; then
             _uncompressed+=("${_file}")
             case "${_filename}" in
                 "control."*)
@@ -225,7 +225,7 @@ ParseControl(){
     fi
 
     #Description
-    if pkgbuild_pkgdesc="$(_get "Description")"; then
+    if pkgbuild_pkgdesc="$(_get "Description" | tr -d "\`")"; then
         msg_debug "pkgdesc=\"${pkgbuild_pkgdesc}\""
     fi
 
