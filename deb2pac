@@ -8,6 +8,7 @@ debug=false
 remove=false
 notar=false
 skiplist=()
+installonly=false
 
 echo_stderr(){
     echo -e "${@}" >&2
@@ -46,11 +47,22 @@ _usage(){
     echo "         --notar                 No unarchive deb file"
     echo "         --remove                Remove work dir"
     echo "         --skip <var1,var2>      Value to skip setting (multiple can be specified)"
+    echo "         --installonly           Skip PKGBUILD generation and parsing"
 }
 
 Run(){
     msg_info "Start ${1}"
     eval "${@}"
+}
+
+
+SetVars(){
+    # Set vars
+    debroot="${work_dir}/deb"
+    dataroot="${work_dir}/data"
+    controlroot="${work_dir}/control"
+    otherroot="${work_dir}/other"
+    build_dir="${work_dir}/build"
 }
 
 CheckEnv(){
@@ -65,6 +77,13 @@ CheckEnv(){
     if ! test "$(file --mime-type "${debfile}" | cut -d " " -f 2 | cut -d "/" -f 2)" = "vnd.debian.binary-package"; then
         msg_error "${debfile} is not debian package" 1
     fi
+
+    if [[ "${installonly}" = true ]]; then
+        if [[ ! -f "${build_dir}/PKGBUILD"  ]]; then
+            msg_error "Not found PKGBUILD in ${build_dir}"
+            msg_error "Do not use \"--installonly\"" 1
+        fi
+    fi
 }
 
 RemoveWork(){
@@ -73,13 +92,6 @@ RemoveWork(){
 }
 
 PrepareBuild(){
-    # Set vars
-    debroot="${work_dir}/deb"
-    dataroot="${work_dir}/data"
-    controlroot="${work_dir}/control"
-    otherroot="${work_dir}/other"
-    build_dir="${work_dir}/build"
-
     # Create work dir
     for _dir in "${work_dir}" "${debroot}" "${dataroot}" "${controlroot}" "${otherroot}" "${build_dir}"; do
         mkdir -p "${_dir}"
@@ -295,10 +307,13 @@ MakeLocalPKGBUILD(){
 
 InstallPackage(){
     cd "${build_dir}"
-    if [[ "${_pacman}" = "yay" ]]; then
-        yay -S --clean --refresh --asdeps --noconfirm --needed --mflags "-AcC" --noconfirm --nocleanmenu --nodiffmenu --noeditmenu --noupgrademenu --noprovides --removemake --useask --color always "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
-    else
-        sudo pacman -S --clean --refresh --asdeps --noconfirm --needed "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
+    sudo pacman -S --refresh --noconfirm
+    if (( "${#pkgbuild_depends[@]}" != 0 )) || (( "${#pkgbuild_optdepends[@]}" != 0 )) ; then
+        if [[ "${_pacman}" = "yay" ]]; then
+            yay -S --asdeps --noconfirm --needed --mflags "-AcC" --noconfirm --nocleanmenu --nodiffmenu --noeditmenu --noupgrademenu --noprovides --removemake --useask --color always "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
+        else
+            sudo pacman -S --asdeps --noconfirm --needed "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
+        fi
     fi
     makepkg --clean --cleanbuild --install --skipchecksums --syncdeps --force --noconfirm
 }
@@ -306,7 +321,7 @@ InstallPackage(){
 # Parse options
 ARGUMENT=("${@}")
 OPTS="w:hd"
-OPTL="work:,help,debug,remove,notar,skip:"
+OPTL="work:,help,debug,remove,notar,skip:,installonly"
 if ! OPT=$(getopt -o ${OPTS} -l ${OPTL} -- ${DEFAULT_ARGUMENT} "${ARGUMENT[@]}"); then
     exit 1
 fi
@@ -338,6 +353,10 @@ while true; do
             echo "${skiplist[@]}"
             shift 2
             ;;
+        --installonly)
+            installonly=true
+            shift 1
+            ;;
         --)
             shift 1
             break
@@ -354,12 +373,15 @@ debfile="${1}"
 shift 1
 
 
+Run SetVars
 Run CheckEnv
-if [[ "${remove}" = true ]]; then
-    Run RemoveWork
+if [[ "${installonly}" = false ]]; then
+    if [[ "${remove}" = true ]]; then
+        Run RemoveWork
+    fi
+    Run PrepareBuild
+    Run ParseControl
+    Run MakeInstallFile
+    Run MakeLocalPKGBUILD
 fi
-Run PrepareBuild
-Run ParseControl
-Run MakeInstallFile
-Run MakeLocalPKGBUILD
 Run InstallPackage
