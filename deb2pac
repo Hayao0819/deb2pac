@@ -188,6 +188,7 @@ ParseControl(){
     while read -r _pkg; do
         for __pkg in "${_pkg}" "$(printf "%s" "${_pkg}" | sed "s|lib||g")"; do
             if "${_pacman}" -Ssq "${__pkg}" 2> /dev/null | grep -x "${__pkg}" 1> /dev/null 2>&1; then
+                msg_debug "Found ${__pkg}"
                 pkgbuild_depends+=("${__pkg}")
                 break
             fi
@@ -195,7 +196,7 @@ ParseControl(){
     done < <(_get "Depends" | tr "," "\n" | cut -d " " -f 2 | tr -d "-" | tr -d "[0-9]" | tr -d ".")
 
     if (( "${#pkgbuild_depends[@]}" != 0 )); then
-        msg_debug "depends=($(printf "\"%s\"" "${pkgbuild_depends[@]}"))"
+        msg_debug "depends=($(printf "\"%s\" " "${pkgbuild_depends[@]}"))"
     fi
 
     #Recommends
@@ -205,6 +206,7 @@ ParseControl(){
     while read -r _pkg; do
         for __pkg in "${_pkg}" "$(printf "%s" "${_pkg}" | sed "s|lib||g")"; do
             if "${_pacman}" -Ssq "${__pkg}" 2> /dev/null | grep -x "${__pkg}" 1> /dev/null 2>&1; then
+                msg_debug "Found ${__pkg}"
                 pkgbuild_optdepends+=("${__pkg}")
                 break
             fi
@@ -212,7 +214,7 @@ ParseControl(){
     done < <(_get "Recommends" | tr "," "\n" | cut -d " " -f 2 | tr -d "-" | tr -d "[0-9]" | tr -d ".")
 
     if (( "${#pkgbuild_optdepends[@]}" != 0 )); then
-        msg_debug "optdepends=($(printf "\"%s\"" "${pkgbuild_optdepends[@]}"))"
+        msg_debug "optdepends=($(printf "\"%s\" " "${pkgbuild_optdepends[@]}"))"
     fi
 
     # Provides
@@ -221,7 +223,7 @@ ParseControl(){
     done < <(_get "Provides")
 
     if (( "${#pkgbuild_provides[@]}" != 0 )); then
-        msg_debug "provides=($(printf "\"%s\"" "${pkgbuild_provides[@]}"))"
+        msg_debug "provides=($(printf "\"%s\" " "${pkgbuild_provides[@]}"))"
     fi
 
     #Description
@@ -274,13 +276,13 @@ MakeLocalPKGBUILD(){
     _write 'install="${_pkgname}.install"'
     _write "arch=($(printf "\"%s\"" "${pkgbuild_arch[@]}"))"
     if (( "${#pkgbuild_depends[@]}" != 0 )); then
-        _write "depends=($(printf "\"%s\"" "${pkgbuild_depends[@]}"))"
+        _write "depends=($(printf "\"%s\" " "${pkgbuild_depends[@]}"))"
     fi
     if (( "${#pkgbuild_optdepends[@]}" != 0 )); then
-        _write "optdepends=($(printf "\"%s\"" "${pkgbuild_optdepends[@]}"))"
+        _write "optdepends=($(printf "\"%s\" " "${pkgbuild_optdepends[@]}"))"
     fi
     if (( "${#pkgbuild_provides[@]}" != 0 )); then
-        _write "provides=($(printf "\"%s\"" "${pkgbuild_provides[@]}"))"
+        _write "provides=($(printf "\"%s\" " "${pkgbuild_provides[@]}"))"
     fi
     _write "source=($(printf "\"%s\"" $(find "${debroot}" -maxdepth 1 -mindepth 1 -type f -name "data.tar.*" -printf "%f")))"
     _write 'md5sums=($(for i in "${source[@]}"; do echo "SKIP"; done))'
