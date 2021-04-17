@@ -295,7 +295,12 @@ MakeLocalPKGBUILD(){
 
 InstallPackage(){
     cd "${build_dir}"
-    makepkg --clean --cleanbuild --install --skipchecksums --syncdeps --force
+    if [[ "${_pacman}" = "yay" ]]; then
+        yay -S --clean --refresh --asdeps --noconfirm --needed --mflags "-AcC" --noconfirm --nocleanmenu --nodiffmenu --noeditmenu --noupgrademenu --noprovides --removemake --useask --color always "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
+    else
+        sudo pacman -S --clean --refresh --asdeps --noconfirm --needed "${pkgbuild_depends[@]}" "${pkgbuild_optdepends[@]}"
+    fi
+    makepkg --clean --cleanbuild --install --skipchecksums --syncdeps --force --noconfirm
 }
 
 # Parse options
